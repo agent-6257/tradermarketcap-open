@@ -1,0 +1,61 @@
+{
+  "code": "00000",
+  "msg": "success",
+  "requestTime": 1795266494602,
+  "data": [
+    {
+      "open": "0.30596",
+      "symbol": "TRXUSDT",
+      "high24h": "0.30621",
+      "low24h": "0.29856",
+      "lastPr": "0.3038",
+      "quoteVolume": "4691735.1439",
+      "baseVolume": "15518173.7579",
+      "usdtVolume": "4691735.143855865",
+      "ts": "1795266492989",
+      "bidPr": "0.3038",
+      "askPr": "0.30381",
+      "bidSz": "882.8357",
+      "askSz": "5892.2965",
+      "openUtc": "0.30219",
+      "changeUtc24h": "0.00533",
+      "change24h": "-0.00706"
+    },
+    {
+      "open": "105000",
+      "symbol": "BTCUSDT",
+      "high24h": "106200",
+      "low24h": "104100",
+      "lastPr": "105750.5",
+      "quoteVolume": "812345678.9",
+      "baseVolume": "7712.5",
+      "usdtVolume": "812345678.9",
+      "ts": "1795266492989",
+      "bidPr": "105750.4",
+      "askPr": "105750.6",
+      "bidSz": "0.42",
+      "askSz": "0.37",
+      "openUtc": "104900",
+      "changeUtc24h": "0.0081",
+      "change24h": "0.00714"
+    },
+    {
+      "open": "3400",
+      "symbol": "ETHUSDC",
+      "high24h": "3480",
+      "low24h": "3380",
+      "lastPr": "3455.2",
+      "quoteVolume": "23456789.1",
+      "baseVolume": "6812.4",
+      "usdtVolume": "0",
+      "ts": "1795266492989",
+      "bidPr": "3455.1",
+      "askPr": "3455.3",
+      "bidSz": "2.1",
+      "askSz": "1.9",
+      "openUtc": "3425",
+      "changeUtc24h": "0.0088",
+      "change24h": "-0.0122"
+    }
+  ]
+}

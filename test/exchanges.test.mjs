@@ -37,3 +37,29 @@ test('bybit: an error answer (retCode not 0) fails the read', async () => {
   fakeFetch({ retCode: 10001, retMsg: 'params error', result: {} });
   await assert.rejects(READERS.bybit(), /retCode 10001/);
 });
+
+const bitgetFixture = () => JSON.parse(readFileSync(new URL('./fixtures/bitget-spot-tickers.json', import.meta.url), 'utf8'));
+
+test('bitget: USD-quoted spot pairs with volume, change and links', async () => {
+  const urls = fakeFetch(bitgetFixture());
+  const ms = await READERS.bitget();
+  assert.deepEqual(urls, ['https://api.bitget.com/api/v2/spot/market/tickers']);
+  assert.ok(VENUES.bitget);
+  assert.equal(VENUES.bitget.name, 'Bitget');
+  assert.deepEqual(ms.map(m => `${m.base}/${m.quote}`), ['TRX/USDT', 'BTC/USDT', 'ETH/USDC']);
+  const btc = ms[1];
+  assert.equal(btc.venue, 'bitget');
+  assert.equal(btc.price, 105750.5);
+  assert.equal(btc.volBase, 7712.5);
+  assert.equal(btc.volQuote, 812345678.9);
+  assert.ok(Math.abs(btc.change24h - 0.714) < 1e-9);
+  assert.equal(btc.api, 'https://api.bitget.com/api/v2/spot/market/tickers?symbol=BTCUSDT');
+  assert.equal(btc.trade, 'https://www.bitget.com/spot/BTCUSDT');
+  assert.ok(ms[0].change24h < 0);
+  assert.ok(ms[2].change24h < 0);
+});
+
+test('bitget: an error answer (code not 00000) fails the read', async () => {
+  fakeFetch({ code: '40001', msg: 'bad symbol', data: [] });
+  await assert.rejects(READERS.bitget(), /bitget code 40001/);
+});
