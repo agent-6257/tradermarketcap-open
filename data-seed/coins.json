@@ -192,4 +192,14 @@
   "ravencoin": {"symbol": "RVN", "name": "Ravencoin", "supply": {"method": "btc-schedule", "heightUrl": "https://blockbook.ravencoin.org/api/", "heightField": "blockbook.bestHeight", "reward": 5000, "halving": 2100000, "schedule": "Ravencoin", "src": "https://blockbook.ravencoin.org", "max": 21000000000}},
   "digibyte": {"symbol": "DGB", "name": "DigiByte", "supply": {"method": "cryptoid", "coin": "dgb", "max": 21000000000}},
   "nervos-network": {"symbol": "CKB", "name": "Nervos Network", "supply": {"method": "nervos"}}
+,
+  "avalanche": {
+    "symbol": "AVAX",
+    "name": "Avalanche",
+    "supply": {
+      "method": "avax",
+      "rpc": "https://api.avax.network/ext/bc/P",
+      "note": "P-chain validator and delegator stake is locked by the protocol, so circulating is getCurrentSupply minus getTotalStake. Both read from Avalanche's own RPC in nAVAX."
+    }
+  }
 }

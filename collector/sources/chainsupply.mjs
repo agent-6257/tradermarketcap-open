@@ -266,6 +266,38 @@ const METHODS = {
     const out = excluded.reduce((s, e) => s + e.amount, 0);
     return { circulating: r.circulating === false ? null : total - out, total, src: parts[0]?.src, parts, excluded, note: r.note };
   },
+  // AVAX: P-chain supply minus validator+delegator stake. Both reads are primary
+  // (Avalanche's own RPC), and both are in nAVAX (1e9 = 1 AVAX). Avalanche's
+  // tokenomics doc says staking locks AVAX on the P-chain, so staked tokens are
+  // not circulating; the gap between supply and stake is what the market holds.
+  async avax(r) {
+    const rpc = r.rpc || 'https://api.avax.network/ext/bc/P';
+    const call = async (method) => {
+      const res = await fetch(rpc, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params: {} }),
+      }).then(x => x.json());
+      if (res.error) throw new Error(`avax ${method}: ${res.error.message || 'rpc error'}`);
+      return res.result;
+    };
+    const dec = 1e9;
+    const [sup, stk] = await Promise.all([call('platform.getCurrentSupply'), call('platform.getTotalStake')]);
+    const total = Number(sup.supply) / dec;
+    const staked = Number(stk.stake) / dec;
+    if (!(total > 0)) throw new Error('avax: empty supply read');
+    if (staked > total) throw new Error(`avax: stake ${staked} exceeds supply ${total}`);
+    const excluded = [
+      { reason: 'P-chain validator and delegator stake (locked)', amount: staked, src: `${rpc} platform.getTotalStake` },
+    ];
+    return {
+      circulating: total - staked,
+      total,
+      src: `${rpc} platform.getCurrentSupply`,
+      excluded,
+      note: r.note || 'P-chain stake is locked by the protocol and excluded from circulating supply.',
+    };
+  },
   async reset() {
     return resetSupply();
   },

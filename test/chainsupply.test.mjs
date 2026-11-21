@@ -47,3 +47,52 @@ test('bnb: a broken tracker fails the read instead of guessing', async () => {
   fakeChain({ bcSupply: 0, bscSupply: 90000000 });
   await assert.rejects(readSupply({ method: 'bnb' }), /tracker/);
 });
+
+// Real response shapes from https://api.avax.network/ext/bc/P, captured 2026-11-21.
+// Both values are nAVAX (1e9 = 1 AVAX).
+const AVAX_SUPPLY = '476832490963925666'; // platform.getCurrentSupply
+const AVAX_STAKE = '218527845251212792';  // platform.getTotalStake
+
+// Fake fetch: answers the two P-chain methods we call, and records them.
+function fakeAvax({ supply = AVAX_SUPPLY, stake = AVAX_STAKE, error = null } = {}) {
+  const methods = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    const req = JSON.parse(opts.body);
+    methods.push(req.method);
+    const reply = body => ({ ok: true, status: 200, json: async () => body });
+    if (error) return reply({ jsonrpc: '2.0', id: req.id, error: { message: error } });
+    if (req.method === 'platform.getCurrentSupply') return reply({ jsonrpc: '2.0', id: req.id, result: { supply, height: '25920780' } });
+    if (req.method === 'platform.getTotalStake') return reply({ jsonrpc: '2.0', id: req.id, result: { stake, weight: stake } });
+    throw new Error('unexpected method ' + req.method);
+  };
+  return methods;
+}
+
+test('avax: circulating is P-chain supply minus locked stake', async () => {
+  const methods = fakeAvax();
+  const s = await readSupply({ method: 'avax' });
+  assert.deepEqual(methods.sort(), ['platform.getCurrentSupply', 'platform.getTotalStake']);
+  assert.ok(Math.abs(s.total - 476832490.9639257) < 1e-6);
+  assert.ok(Math.abs(s.circulating - (476832490.9639257 - 218527845.2512128)) < 1e-6);
+  assert.equal(s.excluded.length, 1);
+  assert.equal(s.excluded[0].amount, 218527845.2512128);
+  assert.match(s.excluded[0].reason, /stake/i);
+  assert.equal(s.checked, true);
+  assert.equal(s.method, 'avax');
+  assert.ok(s.circulating > 0 && s.circulating < s.total, 'stake is actually subtracted');
+});
+
+test('avax: stake above supply fails the read instead of publishing a negative', async () => {
+  fakeAvax({ supply: '1000000000000000', stake: '2000000000000000' });
+  await assert.rejects(readSupply({ method: 'avax' }), /exceeds supply/);
+});
+
+test('avax: an RPC error fails the read', async () => {
+  fakeAvax({ error: 'method not found' });
+  await assert.rejects(readSupply({ method: 'avax' }), /avax platform\./);
+});
+
+test('avax: an empty supply read fails rather than reporting zero', async () => {
+  fakeAvax({ supply: '0' });
+  await assert.rejects(readSupply({ method: 'avax' }), /empty supply/);
+});
