@@ -48,43 +48,74 @@ test('bnb: a broken tracker fails the read instead of guessing', async () => {
   await assert.rejects(readSupply({ method: 'bnb' }), /tracker/);
 });
 
-// Real response shapes from https://api.avax.network/ext/bc/P, captured 2026-11-21.
-// Both values are nAVAX (1e9 = 1 AVAX).
-const AVAX_SUPPLY = '476832490963925666'; // platform.getCurrentSupply
-const AVAX_STAKE = '218527845251212792';  // platform.getTotalStake
+// Real response shapes from https://api.avax.network/ext/bc/P and the C-chain RPC, captured 2026-11-21.
+// Supply and stake are nAVAX (1e9 = 1 AVAX); the burn balance is wei (1e18 = 1 AVAX).
+const AVAX_SUPPLY = '476832857374398361'; // platform.getCurrentSupply
+const AVAX_STAKE = '218308361415365485';  // platform.getTotalStake
+const AVAX_BURN_HEX = '0x444cc1e63569702c7977e'; // eth_getBalance(burn) = 5,160,589.524773 AVAX
+const AVAX_BURN = '0x0100000000000000000000000000000000000000';
 
-// Fake fetch: answers the two P-chain methods we call, and records them.
-function fakeAvax({ supply = AVAX_SUPPLY, stake = AVAX_STAKE, error = null } = {}) {
+// Fake fetch: answers the P-chain methods and the C-chain burn balance, and records them.
+function fakeAvax({ supply = AVAX_SUPPLY, stake = AVAX_STAKE, burn = AVAX_BURN_HEX, error = null } = {}) {
   const methods = [];
   globalThis.fetch = async (url, opts = {}) => {
     const req = JSON.parse(opts.body);
     methods.push(req.method);
     const reply = body => ({ ok: true, status: 200, json: async () => body });
     if (error) return reply({ jsonrpc: '2.0', id: req.id, error: { message: error } });
-    if (req.method === 'platform.getCurrentSupply') return reply({ jsonrpc: '2.0', id: req.id, result: { supply, height: '25920780' } });
-    if (req.method === 'platform.getTotalStake') return reply({ jsonrpc: '2.0', id: req.id, result: { stake, weight: stake } });
+    if (req.method === 'platform.getCurrentSupply') return reply({ jsonrpc: '2.0', id: req.id, result: { supply, height: '25921494' } });
+    // stake: null means the node answered without a stake field
+    if (req.method === 'platform.getTotalStake') return reply({ jsonrpc: '2.0', id: req.id, result: stake === null ? {} : { stake, weight: stake } });
+    if (req.method === 'eth_getBalance') {
+      assert.equal(req.params[0], AVAX_BURN);
+      return reply({ jsonrpc: '2.0', id: req.id, result: burn });
+    }
     throw new Error('unexpected method ' + req.method);
   };
   return methods;
 }
 
-test('avax: circulating is P-chain supply minus locked stake', async () => {
+const AVAX_TOTAL = 476832857.37439836;
+const AVAX_STAKED = 218308361.41536549;
+const AVAX_BURNED = 5160589.524773;
+
+test('avax: circulating is P-chain supply minus locked stake and burned AVAX', async () => {
   const methods = fakeAvax();
   const s = await readSupply({ method: 'avax' });
-  assert.deepEqual(methods.sort(), ['platform.getCurrentSupply', 'platform.getTotalStake']);
-  assert.ok(Math.abs(s.total - 476832490.9639257) < 1e-6);
-  assert.ok(Math.abs(s.circulating - (476832490.9639257 - 218527845.2512128)) < 1e-6);
-  assert.equal(s.excluded.length, 1);
-  assert.equal(s.excluded[0].amount, 218527845.2512128);
-  assert.match(s.excluded[0].reason, /stake/i);
+  assert.deepEqual(methods.sort(), ['eth_getBalance', 'platform.getCurrentSupply', 'platform.getTotalStake']);
+  assert.ok(Math.abs(s.total - (AVAX_TOTAL - AVAX_BURNED)) < 1e-4, 'total is supply minus burn');
+  assert.ok(Math.abs(s.circulating - (AVAX_TOTAL - AVAX_BURNED - AVAX_STAKED)) < 1e-4);
+  assert.equal(s.excluded.length, 2);
+  const burn = s.excluded.find(e => /burn/i.test(e.reason));
+  assert.ok(burn, 'burned AVAX is listed as excluded');
+  assert.ok(Math.abs(burn.amount - AVAX_BURNED) < 1e-4);
+  assert.equal(burn.src, 'https://snowtrace.io/address/' + AVAX_BURN);
+  const stake = s.excluded.find(e => /stake/i.test(e.reason));
+  assert.ok(stake, 'locked stake is listed as excluded');
+  assert.ok(Math.abs(stake.amount - AVAX_STAKED) < 1e-4);
   assert.equal(s.checked, true);
   assert.equal(s.method, 'avax');
   assert.ok(s.circulating > 0 && s.circulating < s.total, 'stake is actually subtracted');
 });
 
+test('avax: burned AVAX lowers both total and circulating', async () => {
+  fakeAvax();
+  const withBurn = await readSupply({ method: 'avax' });
+  fakeAvax({ burn: '0x0' });
+  const noBurn = await readSupply({ method: 'avax' });
+  assert.ok(Math.abs(noBurn.total - AVAX_TOTAL) < 1e-4);
+  assert.ok(Math.abs((noBurn.circulating - withBurn.circulating) - AVAX_BURNED) < 1e-4);
+  assert.equal(noBurn.excluded.length, 1);
+});
+
 test('avax: stake above supply fails the read instead of publishing a negative', async () => {
   fakeAvax({ supply: '1000000000000000', stake: '2000000000000000' });
   await assert.rejects(readSupply({ method: 'avax' }), /exceeds supply/);
+});
+
+test('avax: a missing stake fails instead of publishing NaN', async () => {
+  fakeAvax({ stake: null });
+  await assert.rejects(readSupply({ method: 'avax' }), /missing stake/);
 });
 
 test('avax: an RPC error fails the read', async () => {
@@ -95,4 +126,9 @@ test('avax: an RPC error fails the read', async () => {
 test('avax: an empty supply read fails rather than reporting zero', async () => {
   fakeAvax({ supply: '0' });
   await assert.rejects(readSupply({ method: 'avax' }), /empty supply/);
+});
+
+test('avax: an unreadable burn balance fails the read', async () => {
+  fakeAvax({ burn: null });
+  await assert.rejects(readSupply({ method: 'avax' }), /bad burn balance/);
 });

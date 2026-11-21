@@ -8,6 +8,8 @@ import { resetSupply } from './trac.mjs';
 import { extraSupply } from './extra.mjs';
 
 const BURN = '0x000000000000000000000000000000000000dEaD';
+// Avalanche's C-chain burn address: fees and unclaimed balances are sent here and can never move.
+const AVAX_BURN = '0x0100000000000000000000000000000000000000';
 
 // BNB on BNB Smart Chain (BSC). BSC mints no new BNB: validators earn fees only. Every BNB that existed when BSC
 // launched was put in the TokenHub system contract at genesis (176,405,560.9 BNB, plus 1,000 BNB for two bootstrap
@@ -266,36 +268,38 @@ const METHODS = {
     const out = excluded.reduce((s, e) => s + e.amount, 0);
     return { circulating: r.circulating === false ? null : total - out, total, src: parts[0]?.src, parts, excluded, note: r.note };
   },
-  // AVAX: P-chain supply minus validator+delegator stake. Both reads are primary
-  // (Avalanche's own RPC), and both are in nAVAX (1e9 = 1 AVAX). Avalanche's
-  // tokenomics doc says staking locks AVAX on the P-chain, so staked tokens are
-  // not circulating; the gap between supply and stake is what the market holds.
-  async avax(r) {
-    const rpc = r.rpc || 'https://api.avax.network/ext/bc/P';
+  // AVAX: P-chain supply minus locked stake and burned AVAX.
+  async avax() {
+    const rpc = 'https://api.avax.network/ext/bc/P';
     const call = async (method) => {
-      const res = await fetch(rpc, {
+      const res = await getJSON(rpc, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params: {} }),
-      }).then(x => x.json());
+      });
       if (res.error) throw new Error(`avax ${method}: ${res.error.message || 'rpc error'}`);
+      if (!res.result) throw new Error(`avax ${method}: empty result`);
       return res.result;
     };
-    const dec = 1e9;
     const [sup, stk] = await Promise.all([call('platform.getCurrentSupply'), call('platform.getTotalStake')]);
-    const total = Number(sup.supply) / dec;
-    const staked = Number(stk.stake) / dec;
+    const total = Number(sup.supply) / 1e9;
+    const staked = Number(stk?.stake) / 1e9;
     if (!(total > 0)) throw new Error('avax: empty supply read');
+    if (!(staked >= 0)) throw new Error('avax: missing stake');
     if (staked > total) throw new Error(`avax: stake ${staked} exceeds supply ${total}`);
-    const excluded = [
-      { reason: 'P-chain validator and delegator stake (locked)', amount: staked, src: `${rpc} platform.getTotalStake` },
-    ];
+    // getCurrentSupply does not account for burnt tokens, so the burn address is read and subtracted too.
+    const burnHex = await evm('avax', 'eth_getBalance', [AVAX_BURN, 'latest']);
+    if (typeof burnHex !== 'string' || !/^0x[0-9a-f]+$/i.test(burnHex)) throw new Error('avax: bad burn balance');
+    const burned = Number(BigInt(burnHex) / 10n ** 12n) / 1e6;
+    const excluded = [];
+    if (burned) excluded.push({ reason: 'Burned (C-chain burn address: fees and unclaimed balances)', holder: AVAX_BURN, amount: burned, src: `${EXPLORER.avax}/address/${AVAX_BURN}` });
+    excluded.push({ reason: 'P-chain validator and delegator stake (locked)', amount: staked, src: `${rpc} platform.getTotalStake` });
     return {
-      circulating: total - staked,
-      total,
+      circulating: total - burned - staked,
+      total: total - burned,
       src: `${rpc} platform.getCurrentSupply`,
       excluded,
-      note: r.note || 'P-chain stake is locked by the protocol and excluded from circulating supply.',
+      note: 'P-chain supply minus stake and burned AVAX',
     };
   },
   async reset() {
