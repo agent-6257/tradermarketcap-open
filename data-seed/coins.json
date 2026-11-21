@@ -186,4 +186,19 @@
   "ravencoin": {"symbol": "RVN", "name": "Ravencoin", "supply": {"method": "btc-schedule", "heightUrl": "https://blockbook.ravencoin.org/api/", "heightField": "blockbook.bestHeight", "reward": 5000, "halving": 2100000, "schedule": "Ravencoin", "src": "https://blockbook.ravencoin.org", "max": 21000000000}},
   "digibyte": {"symbol": "DGB", "name": "DigiByte", "supply": {"method": "cryptoid", "coin": "dgb", "max": 21000000000}},
   "nervos-network": {"symbol": "CKB", "name": "Nervos Network", "supply": {"method": "nervos"}}
+,
+  "aerodrome": {
+    "symbol": "AERO",
+    "name": "Aerodrome Finance",
+    "supply": {
+      "method": "tokens",
+      "parts": [
+        {
+          "chain": "base",
+          "address": "0x3f5bF3EdAc59d650D8fDf9657a71F2f904A3a4Ee"
+        }
+      ],
+      "note": "Live AERO is the Aero-migration contract 0x3f5bF3Ed... (Base, since 22 Oct 2026); its supply moves weekly with emissions. The old Aerodrome-era token 0x940181a9... is retired and its supply is static, so listing it understated nothing but described a dead contract. Burn balances are subtracted by the tokens method."
+    }
+  }
 }

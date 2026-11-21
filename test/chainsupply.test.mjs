@@ -1,6 +1,7 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readSupply } from '../collector/sources/chainsupply.mjs';
+import { readFileSync } from 'node:fs';
 
 // Real response shapes, captured from BNB Chain's public RPC and bnbburn.info on 2026-11-21. No network in tests.
 const BALANCES = {
@@ -46,4 +47,40 @@ test('bnb: a broken tracker fails the read instead of guessing', async () => {
   await assert.rejects(readSupply({ method: 'bnb' }), /tracker/);
   fakeChain({ bcSupply: 0, bscSupply: 90000000 });
   await assert.rejects(readSupply({ method: 'bnb' }), /tracker/);
+});
+
+// AERO migrated: the live token is 0x3f5bF3Ed..., the old 0x940181a9... is retired
+// (static supply). Base uses the same eth_call ABI, so the tokens method covers it.
+const AERO_LIVE = '0x3f5bF3EdAc59d650D8fDf9657a71F2f904A3a4Ee';
+const AERO_OLD = '0x940181a94A35A4569E4529A3CDfB74e38FD98631';
+
+function fakeBaseErc20(totalWeiHex, tokensQueried) {
+  globalThis.fetch = async (url, opts = {}) => {
+    const req = JSON.parse(opts.body);
+    tokensQueried.push(req.params[0].to);
+    const reply = result => ({ ok: true, status: 200, json: async () => ({ jsonrpc: '2.0', id: req.id, result }) });
+    const data = req.params[0].data;
+    if (data.startsWith('0x313ce567')) return reply('0x' + '12'.padStart(64, '0'));
+    if (data.startsWith('0x18160ddd')) return reply(totalWeiHex);
+    return reply('0x' + '0'.repeat(64));
+  };
+}
+
+test('aero: reads the live Aero-migration contract on Base', async () => {
+  const queried = [];
+  fakeBaseErc20('0x606b11c9592ef29e9000000', queried); // 1,865,000,000
+  const s = await readSupply({ method: 'tokens', parts: [{ chain: 'base', address: AERO_LIVE }] });
+  assert.ok(queried.every(a => a.toLowerCase() === AERO_LIVE.toLowerCase()), 'only the live contract is queried');
+  assert.ok(!queried.some(a => a.toLowerCase() === AERO_OLD.toLowerCase()), 'the retired contract is never queried');
+  assert.equal(s.total, 1865000000);
+  assert.equal(s.circulating, 1865000000);
+});
+
+test('aero: the retired Aerodrome-era contract is not used', async () => {
+  const seed = JSON.parse(readFileSync(new URL('../data-seed/coins.json', import.meta.url), 'utf8'));
+  const parts = seed.aerodrome.supply.parts;
+  assert.equal(parts.length, 1);
+  assert.equal(parts[0].chain, 'base');
+  assert.equal(parts[0].address.toLowerCase(), AERO_LIVE.toLowerCase());
+  assert.notEqual(parts[0].address.toLowerCase(), AERO_OLD.toLowerCase());
 });
