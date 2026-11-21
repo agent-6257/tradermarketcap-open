@@ -266,6 +266,51 @@ const METHODS = {
     const out = excluded.reduce((s, e) => s + e.amount, 0);
     return { circulating: r.circulating === false ? null : total - out, total, src: parts[0]?.src, parts, excluded, note: r.note };
   },
+  // APT: total minted read on-chain, minus the 210,000,000 APT the Aptos Foundation
+  // permanently locked and staked under governance Proposal #183 (executed 2026-03-09).
+  // Those tokens "will never be sold or distributed", so they are not circulating.
+  // Total comes from the 0x1::coin::supply view function, so burned APT is already
+  // excluded (all gas fees are burned). Note: the community/foundation vesting
+  // tranches that run to 2032 are a separate item and are not subtracted here
+  // because they are not identifiable on-chain; see the note on the coin page.
+  async aptos(r) {
+    const api = r.api || 'https://api.mainnet.aptoslabs.com';
+    const res = await fetch(`${api}/v1/view`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        function: '0x1::coin::supply',
+        type_arguments: ['0x1::aptos_coin::AptosCoin'],
+        arguments: [],
+      }),
+    }).then(x => x.json());
+    const raw = (() => {
+      const first = Array.isArray(res) ? res[0] : null;
+      if (!first) return null;
+      // Shape is [{"vec": ["<amount>"]}]; older nodes returned [["<amount>"]].
+      if (Array.isArray(first)) return first[0] ?? null;
+      if (Array.isArray(first.vec)) return first.vec[0] ?? null;
+      return null;
+    })();
+    if (!raw) throw new Error('aptos: no supply in view response');
+    const dec = 10 ** (r.decimals ?? 8);
+    const total = Number(raw) / dec;
+    if (!(total > 0)) throw new Error('aptos: empty supply read');
+    const locked = Number(r.lockedFoundationApt ?? 210e6);
+    if (locked > total) throw new Error(`aptos: lock ${locked} exceeds supply ${total}`);
+    const excluded = [{
+      reason: 'Aptos Foundation permanent lock and stake (governance Proposal #183, executed 2026-03-09; never sold or distributed)',
+      amount: locked,
+      src: 'https://governance.aptosfoundation.org/proposal/183',
+    }];
+    return {
+      circulating: total - locked,
+      total,
+      src: `${api}/v1/view 0x1::coin::supply`,
+      excluded,
+      note: r.note || 'Foundation permanently locked and staked 210M APT; those tokens are excluded. Community/foundation vesting tranches to 2032 are not subtracted.',
+    };
+  },
   async reset() {
     return resetSupply();
   },

@@ -47,3 +47,46 @@ test('bnb: a broken tracker fails the read instead of guessing', async () => {
   fakeChain({ bcSupply: 0, bscSupply: 90000000 });
   await assert.rejects(readSupply({ method: 'bnb' }), /tracker/);
 });
+
+// Real response shape from POST https://api.mainnet.aptoslabs.com/v1/view
+// (0x1::coin::supply, 8 decimals), captured 2026-11-21.
+const APT_SUPPLY_RAW = '121190761070366156'; // 1,211,907,610.70366156 APT
+
+function fakeAptos(raw = APT_SUPPLY_RAW) {
+  const urls = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    urls.push(String(url));
+    const req = JSON.parse(opts.body);
+    assert.equal(req.function, '0x1::coin::supply');
+    assert.deepEqual(req.type_arguments, ['0x1::aptos_coin::AptosCoin']);
+    return { ok: true, status: 200, json: async () => [{ vec: [raw] }] };
+  };
+  return urls;
+}
+
+test('aptos: circulating subtracts the 210M APT foundation lock', async () => {
+  const urls = fakeAptos();
+  const s = await readSupply({ method: 'aptos' });
+  assert.deepEqual(urls, ['https://api.mainnet.aptoslabs.com/v1/view']);
+  assert.ok(Math.abs(s.total - 1211907610.7036616) < 1e-6);
+  assert.ok(Math.abs(s.circulating - (1211907610.7036616 - 210e6)) < 1e-6);
+  assert.equal(s.excluded.length, 1);
+  assert.equal(s.excluded[0].amount, 210e6);
+  assert.match(s.excluded[0].reason, /Proposal #183/);
+  assert.equal(s.checked, true);
+});
+
+test('aptos: a lock larger than supply fails instead of going negative', async () => {
+  fakeAptos('10000000000000'); // 100,000 APT
+  await assert.rejects(readSupply({ method: 'aptos' }), /exceeds supply/);
+});
+
+test('aptos: an empty supply read fails rather than reporting zero', async () => {
+  fakeAptos('0');
+  await assert.rejects(readSupply({ method: 'aptos' }), /empty supply/);
+});
+
+test('aptos: a malformed response fails the read', async () => {
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ error: 'nope' }) });
+  await assert.rejects(readSupply({ method: 'aptos' }), /no supply/);
+});

@@ -186,4 +186,16 @@
   "ravencoin": {"symbol": "RVN", "name": "Ravencoin", "supply": {"method": "btc-schedule", "heightUrl": "https://blockbook.ravencoin.org/api/", "heightField": "blockbook.bestHeight", "reward": 5000, "halving": 2100000, "schedule": "Ravencoin", "src": "https://blockbook.ravencoin.org", "max": 21000000000}},
   "digibyte": {"symbol": "DGB", "name": "DigiByte", "supply": {"method": "cryptoid", "coin": "dgb", "max": 21000000000}},
   "nervos-network": {"symbol": "CKB", "name": "Nervos Network", "supply": {"method": "nervos"}}
+,
+  "aptos": {
+    "symbol": "APT",
+    "name": "Aptos",
+    "supply": {
+      "method": "aptos",
+      "api": "https://api.mainnet.aptoslabs.com",
+      "decimals": 8,
+      "lockedFoundationApt": 210000000,
+      "note": "Total is 0x1::coin::supply on-chain (gas fees are burned, so burns are already out). The Aptos Foundation permanently locked and staked 210M APT under governance Proposal #183; those tokens are never sold or distributed and are excluded."
+    }
+  }
 }
